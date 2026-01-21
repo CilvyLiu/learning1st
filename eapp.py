@@ -190,18 +190,39 @@ if mode == "思维脑图学习":
         st.warning("请确保 mindmap.png 在脚本同级目录。")
 
 # --- B. 闪卡朗读 ---
+# --- B. 闪卡朗读 ---
 elif mode == "闪卡朗读模式":
     st.subheader("🗂️ 点击翻面 & 朗读")
     word_item = CURRENT_DATA[st.session_state.card_idx % len(CURRENT_DATA)]
     
-    st.markdown(f"""
-    <div class="flashcard-container">
-        <div class="flashcard">
-            <p class="word-text">{word_item['word'] if not st.session_state.is_flipped else word_item['cn']}</p>
-            <p style="color:gray;">{'[点击翻面]' if not st.session_state.is_flipped else f'({word_item["pos"]})'}</p>
-        </div>
-    </div>
+    # 修复：增加 CSS 样式确保容器高度和显示
+    st.markdown("""
+    <style>
+        .flashcard-box {
+            background-color: white;
+            border: 3px solid #2e7d32;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
     """, unsafe_allow_html=True)
+    
+    # 判定显示内容：正面显示英文，反面显示中文+词性
+    display_content = f"""
+        <div class="flashcard-box">
+            <p class="word-text">{"🇺🇸 " + word_item['word'] if not st.session_state.is_flipped else "🇨🇳 " + word_item['cn']}</p>
+            <p style="color:gray; font-size:18px;">{"[ 点击下方按钮翻面 ]" if not st.session_state.is_flipped else f"({word_item['pos']})"}</p>
+        </div>
+    """
+    st.markdown(display_content, unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -210,9 +231,10 @@ elif mode == "闪卡朗读模式":
             st.session_state.is_flipped = False
             st.rerun()
     with c2:
+        # 修复：无论正反面，点击此按钮都会重新触发朗读
         if st.button("🔄 翻面 / 朗读 🔊"):
             st.session_state.is_flipped = not st.session_state.is_flipped
-            speak_word(word_item['word'])
+            speak_word(word_item['word']) # 始终朗读英文单词
             st.rerun()
     with c3:
         if st.button("下一个 ➡️"):
