@@ -40,8 +40,26 @@ st.markdown("""
 
 # TTS 朗读函数
 def speak_word(word):
-    js_code = f"""<script>var msg = new SpeechSynthesisUtterance('{word}'); msg.lang = 'en-US'; window.speechSynthesis.speak(msg);</script>"""
-    st.components.v1.html(js_code, height=0)
+    # 使用随机数或单词作为 key，确保每次调用都会触发脚本重新加载
+    js_key = f"tts_{word}_{random.randint(0, 1000)}"
+    
+    js_code = f"""
+    <script>
+    // 停止之前正在播放的声音
+    window.speechSynthesis.cancel();
+    
+    var msg = new SpeechSynthesisUtterance('{word}');
+    msg.lang = 'en-US';
+    msg.rate = 0.9; // 语速稍微放慢一点，方便听清
+    
+    // 延迟执行，确保组件加载完毕
+    setTimeout(() => {{
+        window.speechSynthesis.speak(msg);
+    }}, 50);
+    </script>
+    """
+    # 必须指定 key，否则 Streamlit 可能会复用旧组件而不发音
+    st.components.v1.html(js_code, height=0, key=js_key)
 
 # ---------------------------
 # 1️⃣ 词库 (47个单词)
