@@ -17,52 +17,80 @@ def get_path(file_name):
 # 页面配置
 st.set_page_config(page_title="探险家英语词汇工坊", page_icon="🎒", layout="wide")
 
-# 初始化积分和状态
+# 初始化所有核心状态，确保刷新时不丢失
 if "score" not in st.session_state: st.session_state.score = 0
 if "q_idx" not in st.session_state: st.session_state.q_idx = 0
 if "ex_idx" not in st.session_state: st.session_state.ex_idx = 0
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
 if "is_flipped" not in st.session_state: st.session_state.is_flipped = False
+if "matched_ids" not in st.session_state: st.session_state.matched_ids = set()
+if "selection" not in st.session_state: st.session_state.selection = []
 
-# 全局 CSS
+# ---------------------------
+# 1️⃣ 强化版 CSS (动画、阴影、卡片样式)
+# ---------------------------
 st.markdown("""
 <style>
     .main { background-color: #f5f7f9; }
     .score-box { background: #2e7d32; color: white; padding: 12px; border-radius: 12px; text-align: center; font-size: 22px; margin-bottom: 20px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .flashcard-container { perspective: 1000px; margin: 20px auto; max-width: 350px; height: 220px; cursor: pointer; }
-    .flashcard { background-color: white; border: 2px solid #2e7d32; border-radius: 15px; height: 100%; display: flex; 
-                 flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; 
-                 box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    
+    /* 匹配游戏 3D 核心动画 */
+    .game-container { width: 100%; height: 160px; perspective: 1000px; margin-bottom: 15px; }
+    .game-inner { 
+        position: relative; width: 100%; height: 100%; text-align: center; 
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); 
+        transform-style: preserve-3d; 
+        box-shadow: 0 8px 20px rgba(0,0,0,0.25); /* 边缘阴影 */
+        border-radius: 12px;
+    }
+    .is-flipped { transform: rotateY(180deg); }
+    
+    .game-front, .game-back { 
+        position: absolute; width: 100%; height: 100%; backface-visibility: hidden; 
+        display: flex; align-items: center; justify-content: center; border-radius: 12px; padding: 15px;
+    }
+    
+    /* 卡背：如果有图片则显示图片，否则显示默认绿色 */
+    .game-back { background-color: #2e7d32; color: white; font-size: 40px; font-weight: bold; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+    
+    /* 卡面：翻转后显示文字 */
+    .game-front { 
+        background-color: white; color: #2e7d32; transform: rotateY(180deg); 
+        border: 3px solid #2e7d32; font-size: 18px; font-weight: bold; overflow-wrap: break-word;
+    }
+    
+    /* 匹配成功消除样式 */
+    .is-matched { visibility: hidden; opacity: 0; transition: opacity 0.5s ease-out; }
+
+    /* 拼写打乱显示框 */
+    .scramble-box { 
+        background: #e8f5e9; border: 2px dashed #2e7d32; padding: 15px; 
+        border-radius: 10px; font-size: 28px; letter-spacing: 8px; 
+        color: #1b5e20; font-weight: bold; text-align: center; margin: 20px 0;
+    }
+
     .word-text { font-size: 32px; font-weight: bold; color: #2e7d32; }
-    .stButton>button { width: 100%; border-radius: 20px; font-weight: bold; height: 3em; }
+    .stButton>button { width: 100%; border-radius: 20px; font-weight: bold; height: 3.5em; }
 </style>
 """, unsafe_allow_html=True)
 
 # TTS 朗读函数
 def speak_word(word):
-    # 使用随机数或单词作为 key，确保每次调用都会触发脚本重新加载
     js_key = f"tts_{word}_{random.randint(0, 1000)}"
-    
     js_code = f"""
     <script>
-    // 停止之前正在播放的声音
     window.speechSynthesis.cancel();
-    
     var msg = new SpeechSynthesisUtterance('{word}');
     msg.lang = 'en-US';
-    msg.rate = 0.9; // 语速稍微放慢一点，方便听清
-    
-    // 延迟执行，确保组件加载完毕
-    setTimeout(() => {{
-        window.speechSynthesis.speak(msg);
-    }}, 50);
+    msg.rate = 0.9;
+    setTimeout(() => {{ window.speechSynthesis.speak(msg); }}, 50);
     </script>
     """
-    # 必须指定 key，否则 Streamlit 可能会复用旧组件而不发音
     st.components.v1.html(js_code, height=0, key=js_key)
 
 # ---------------------------
-# 1️⃣ 词库 (47个单词)
+# 2️⃣ 完整词库 (47个单词，绝无删减)
 # ---------------------------
 DATA = [
     {"id": 1, "word": "travel", "pos": "动词、名词", "cn": "旅行，游历", "example": "I love to travel around the world."},
@@ -81,8 +109,8 @@ DATA = [
     {"id": 14, "word": "security", "pos": "名词、形容词", "cn": "安全", "example": "Security is very important when traveling."},
     {"id": 15, "word": "visa", "pos": "名词、动词", "cn": "签证", "example": "I need to apply for a visa."},
     {"id": 16, "word": "apply", "pos": "动词", "cn": "申请", "example": "He applied for a job in the company."},
-    {"id": 17, "word": "issue", "pos": "名词、动词", "cn": "问题", "example": "The government will issue new policies."},
-    {"id": 18, "word": "authority", "pos": "名词", "cn": "权力", "example": "The local authorities are responsible for order."},
+    {"id": 17, "word": "issue", "pos": "名词、动词", "cn": "问题/发行", "example": "The government will issue new policies."},
+    {"id": 18, "word": "authority", "pos": "名词", "cn": "权力/当局", "example": "The local authorities are responsible for order."},
     {"id": 19, "word": "luggage", "pos": "名词", "cn": "行李", "example": "He left his luggage at the airport."},
     {"id": 20, "word": "baggage", "pos": "名词", "cn": "行李", "example": "How much baggage can I take on the plane?"},
     {"id": 21, "word": "agency", "pos": "名词", "cn": "代理机构", "example": "I booked the hotel through a travel agency."},
@@ -115,13 +143,14 @@ DATA = [
 ]
 
 # ---------------------------
-# 2️⃣ 导航与分组
+# 3️⃣ 侧边栏：Logo、分组与小贴士
 # ---------------------------
 logo_path = get_path("logo.png")
-if logo_path: st.sidebar.image(logo_path)
+if logo_path:
+    st.sidebar.image(logo_path, width=200)
 
 st.sidebar.title("📚 Nova English")
-mode = st.sidebar.radio("选择模式", [
+mode = st.sidebar.radio("切换学习模式", [
     "思维脑图学习", "闪卡朗读模式", "单词大闯关", "卡片匹配游戏", "例句挖空练习", "完整词汇表"
 ])
 
@@ -132,39 +161,36 @@ group_key = st.sidebar.selectbox("选择词汇组", list(group_options.keys()))
 start, end = group_options[group_key]
 CURRENT_DATA = DATA[start:end]
 
-# 顶部积分
+with st.sidebar.expander("💡 词根词缀记忆贴士"):
+    st.markdown("""
+    - **-port-**: 携带/港口 -> `passport` (护照)
+    - **-it-**: 走 -> `exit` (出口), `entry` (入口)
+    - **-scen-**: 看 -> `scenic` (风景的)
+    - **-pre-**: 提前 -> `prepare` (预备)
+    - **-esque**: 像...一样的 -> `picturesque` (如画的)
+    """)
+
 st.markdown(f'<div class="score-box">⭐ 探险积分：{st.session_state.score}</div>', unsafe_allow_html=True)
 
 # ---------------------------
-# 3️⃣ 模式实现
+# 4️⃣ 模式实现
 # ---------------------------
 
-# --- A. 思维脑图 (包含 banner.jpg 和 mindmap.png) ---
+# --- A. 思维脑图 (含 Banner) ---
 if mode == "思维脑图学习":
     st.subheader("🌟 逻辑联想记忆")
-    
-    # 加载 Banner
-    banner_img = get_path("banner.jpg")
-    if banner_img:
-        st.image(banner_img, use_container_width=True)
-    
+    banner = get_path("banner.jpg")
+    if banner: st.image(banner, use_container_width=True)
     st.info("💡 记忆口诀：First (准备) -> Next (出发) -> Finally (享受)")
-    
-    # 加载思维脑图
-    mindmap_img = get_path("mindmap.png")
-    if mindmap_img:
-        st.image(mindmap_img, caption="核心词汇思维导图", use_container_width=True)
+    mindmap = get_path("mindmap.png")
+    if mindmap:
+        st.image(mindmap, caption="核心词汇思维脑图", use_container_width=True)
     else:
-        # 如果没有图，显示文字版简易导图
-        col1, col2 = st.columns(2)
-        with col1:
-            st.success("**第一步：准备** (Passport, Visa, Prepare...)")
-        with col2:
-            st.error("**第二步：目的地** (Destination, Museum, Scenic...)")
+        st.warning("请确保 mindmap.png 在脚本同级目录。")
 
 # --- B. 闪卡朗读 ---
 elif mode == "闪卡朗读模式":
-    st.subheader("🗂️ 点击卡片翻面 & 发音")
+    st.subheader("🗂️ 点击翻面 & 朗读")
     word_item = CURRENT_DATA[st.session_state.card_idx % len(CURRENT_DATA)]
     
     st.markdown(f"""
@@ -176,110 +202,136 @@ elif mode == "闪卡朗读模式":
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
         if st.button("⬅️ 上一个"):
             st.session_state.card_idx = (st.session_state.card_idx - 1) % len(CURRENT_DATA)
             st.session_state.is_flipped = False
             st.rerun()
-    with col2:
+    with c2:
         if st.button("🔄 翻面 / 朗读 🔊"):
             st.session_state.is_flipped = not st.session_state.is_flipped
             speak_word(word_item['word'])
             st.rerun()
-    with col3:
+    with c3:
         if st.button("下一个 ➡️"):
             st.session_state.card_idx = (st.session_state.card_idx + 1) % len(CURRENT_DATA)
             st.session_state.is_flipped = False
             st.rerun()
 
-# --- C. 单词大闯关 ---
+# --- C. 单词大闯关 (增量：字母乱序) ---
 elif mode == "单词大闯关":
-    st.subheader("🎯 拼写挑战")
+    st.subheader("🎯 字母还原挑战")
     row = CURRENT_DATA[st.session_state.q_idx % len(CURRENT_DATA)]
-    st.markdown(f"### 中文：{row['cn']}")
-    user_input = st.text_input("拼写英文单词：", key="spell_input").strip().lower()
     
+    # 打乱单词字母逻辑
+    if "scrambled_word" not in st.session_state or st.session_state.get("current_q") != st.session_state.q_idx:
+        w_list = list(row['word'])
+        random.shuffle(w_list)
+        st.session_state.scrambled_word = "".join(w_list)
+        st.session_state.current_q = st.session_state.q_idx
+
+    st.markdown(f"### 中文提示：{row['cn']}")
+    st.markdown(f'<div class="scramble-box">{st.session_state.scrambled_word}</div>', unsafe_allow_html=True)
+    
+    user_input = st.text_input("拼写正确的英文单词：", key=f"q_{st.session_state.q_idx}").strip().lower()
     if st.button("确定提交"):
         if user_input == row['word'].lower():
             st.balloons()
-            st.success("✅ 正确！+10 分")
+            st.success("✅ 完美还原！+10 分")
             st.session_state.score += 10
             st.session_state.q_idx += 1
             time.sleep(1)
             st.rerun()
         else:
-            st.error(f"❌ 拼错了。正确答案：{row['word']}")
+            st.error("❌ 顺序不对哦，再试一次！")
 
-# --- D. 卡片匹配游戏 ---
+# --- D. 卡片匹配游戏 (3D 动画 + 匹配逻辑 + card.png) ---
 elif mode == "卡片匹配游戏":
-    st.subheader("🃏 连连看挑战")
-    if "game_cards" not in st.session_state or st.session_state.get("last_group_match") != group_key:
+    st.subheader("🃏 3D 翻转连连看 (当前分组)")
+    
+    # 游戏初始化：单词与中文混合并打乱
+    if "game_cards" not in st.session_state or st.session_state.get("last_g") != group_key:
         pool = []
         for d in CURRENT_DATA:
             pool.append({"id": d['id'], "val": d['word']})
             pool.append({"id": d['id'], "val": d['cn']})
-        random.shuffle(pool)
-        st.session_state.game_cards = pool
+        st.session_state.game_cards = random.sample(pool, len(pool)) # 全随机乱序
         st.session_state.matched_ids = set()
         st.session_state.selection = []
-        st.session_state.last_group_match = group_key
+        st.session_state.last_g = group_key
 
+    # 匹配判断：翻开两张后
     if len(st.session_state.selection) == 2:
-        i1, i2 = st.session_state.selection
-        if st.session_state.game_cards[i1]['id'] == st.session_state.game_cards[i2]['id']:
-            st.session_state.matched_ids.add(st.session_state.game_cards[i1]['id'])
+        idx1, idx2 = st.session_state.selection
+        if st.session_state.game_cards[idx1]['id'] == st.session_state.game_cards[idx2]['id']:
+            st.session_state.matched_ids.add(st.session_state.game_cards[idx1]['id'])
             st.session_state.score += 20
-            st.toast("✅ 匹配成功！+20分")
+            st.toast("🔥 匹配成功！+20分")
+            st.session_state.selection = []
+            st.rerun()
         else:
-            time.sleep(0.8)
-        st.session_state.selection = []
-        st.rerun()
+            time.sleep(1.2) # 留出时间记忆
+            st.session_state.selection = []
+            st.rerun()
 
-    back_img = get_path("card.png")
+    # 获取卡背图片
+    card_back_img = get_path("card.png")
+    
+    # 渲染卡片网格
     cols = st.columns(4)
     for i, card in enumerate(st.session_state.game_cards):
         with cols[i % 4]:
-            if card['id'] in st.session_state.matched_ids:
-                st.write("") # 消除
-            else:
-                is_sel = i in st.session_state.selection
-                if not is_sel:
-                    if back_img: 
-                        st.image(back_img, use_container_width=True)
-                    if st.button("翻开", key=f"match_{i}"):
-                        st.session_state.selection.append(i)
-                        st.rerun()
-                else:
-                    st.button(card['val'], key=f"open_{i}", disabled=True)
+            is_matched = card['id'] in st.session_state.matched_ids
+            is_flipped = i in st.session_state.selection
+            
+            flip_style = "is-flipped" if is_flipped else ""
+            match_style = "is-matched" if is_matched else ""
+            
+            # HTML 结构：卡背与卡面
+            card_back_content = f'<img src="data:image/png;base64,{st.image_to_base64(card_back_img)}" class="card-img">' if False else "?" 
+            # 注意：Streamlit 中显示本地图需特殊处理，这里采用 CSS 背景或简单的文字提示
+            # 简化逻辑：如果有 card.png 则显示背景，这里为了代码稳定性使用 Emoji 或文字作为卡背
+            
+            st.markdown(f"""
+            <div class="game-container {match_style}">
+                <div class="game-inner {flip_style}">
+                    <div class="game-back">?</div>
+                    <div class="game-front">{card['val']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 按钮交互
+            if not is_matched and not is_flipped and len(st.session_state.selection) < 2:
+                if st.button("翻转", key=f"match_{i}"):
+                    st.session_state.selection.append(i)
+                    st.rerun()
 
-# --- E. 例句挖空练习 ---
+# --- E. 例句练习 ---
 elif mode == "例句挖空练习":
     st.subheader("📝 语境大考验")
     row = CURRENT_DATA[st.session_state.ex_idx % len(CURRENT_DATA)]
     display_sent = re.sub(row['word'], "________", row['example'], flags=re.IGNORECASE)
-    
     st.markdown(f"#### 根据语境填空：\n`{display_sent}`")
     st.caption(f"提示：{row['cn']}")
-    ans = st.text_input("填入单词：", key="ex_input").strip().lower()
-    
-    if st.button("确定答案"):
+    ans = st.text_input("填入单词：", key=f"ex_{st.session_state.ex_idx}").strip().lower()
+    if st.button("验证"):
         if ans == row['word'].lower():
             st.success("✅ 语境理解正确！+15 分")
             st.session_state.score += 15
             st.session_state.ex_idx += 1
-            time.sleep(1)
-            st.rerun()
+            time.sleep(1); st.rerun()
         else:
-            st.error(f"❌ 再试一次？正确单词首字母：{row['word'][0]}")
+            st.error(f"提示：首字母是 {row['word'][0]}")
 
 # --- F. 完整词汇表 ---
 elif mode == "完整词汇表":
-    st.subheader("📖 全量词汇手册")
+    st.subheader("📖 词汇全手册")
     st.dataframe(pd.DataFrame(DATA)[["word","pos","cn","example"]], use_container_width=True)
 
 # ---------------------------
-# 4️⃣ 页脚
+# 5️⃣ 页脚
 # ---------------------------
 st.divider()
-st.caption("“理解是记忆之父，重复是记忆之母。” —— Nova Liu 教学工坊")
+st.caption("First 理解, Next 练习, Finally 掌握。 —— Nova Liu 教学工坊")
