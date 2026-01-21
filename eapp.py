@@ -77,18 +77,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # TTS 朗读函数
+# 重新定义的朗读函数：使用更稳健的注入方式
 def speak_word(word):
-    js_key = f"tts_{word}_{random.randint(0, 1000)}"
-    js_code = f"""
-    <script>
-    window.speechSynthesis.cancel();
-    var msg = new SpeechSynthesisUtterance('{word}');
-    msg.lang = 'en-US';
-    msg.rate = 0.9;
-    setTimeout(() => {{ window.speechSynthesis.speak(msg); }}, 50);
-    </script>
-    """
-    st.components.v1.html(js_code, height=0, key=js_key)
+    if word:
+        # 生成一个带随机数的 key 避免缓存
+        rid = random.randint(0, 99999)
+        js_code = f"""
+        <div style="display:none;" id="tts_{rid}">
+            <script>
+                (function() {{
+                    window.speechSynthesis.cancel();
+                    var msg = new SpeechSynthesisUtterance('{word}');
+                    msg.lang = 'en-US';
+                    msg.rate = 0.9;
+                    window.speechSynthesis.speak(msg);
+                    document.getElementById('tts_{rid}').remove();
+                }})();
+            </script>
+        </div>
+        """
+        # 使用 st.markdown 配合 unsafe_allow_html 避开组件错误
+        st.markdown(js_code, unsafe_allow_html=True)
 
 # ---------------------------
 # 2️⃣ 完整词库 (47个单词)
@@ -193,20 +202,22 @@ if mode == "思维脑图学习":
 # --- B. 闪卡朗读 ---
 elif mode == "闪卡朗读模式":
     st.subheader("🗂️ 点击翻面 & 朗读")
+    
+    # 获取当前单词
     word_item = CURRENT_DATA[st.session_state.card_idx % len(CURRENT_DATA)]
     
-    # 修复：增加 CSS 样式确保容器高度和显示
+    # 样式容器
     st.markdown("""
     <style>
         .flashcard-box {
             background-color: white;
-            border: 3px solid #2e7d32;
+            border: 4px solid #2e7d32;
             border-radius: 20px;
-            padding: 40px;
+            padding: 50px 20px;
             text-align: center;
             margin: 20px 0;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            min-height: 200px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+            min-height: 250px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -215,15 +226,26 @@ elif mode == "闪卡朗读模式":
     </style>
     """, unsafe_allow_html=True)
     
-    # 判定显示内容：正面显示英文，反面显示中文+词性
-    display_content = f"""
+    # 显示内容
+    if not st.session_state.is_flipped:
+        # 正面
+        content_html = f"""
         <div class="flashcard-box">
-            <p class="word-text">{"🇺🇸 " + word_item['word'] if not st.session_state.is_flipped else "🇨🇳 " + word_item['cn']}</p>
-            <p style="color:gray; font-size:18px;">{"[ 点击下方按钮翻面 ]" if not st.session_state.is_flipped else f"({word_item['pos']})"}</p>
+            <div style="font-size: 48px; font-weight: bold; color: #2e7d32;">{word_item['word']}</div>
+            <div style="color: #666; margin-top: 15px;">[ 点击中间按钮翻看中文 ]</div>
         </div>
-    """
-    st.markdown(display_content, unsafe_allow_html=True)
+        """
+    else:
+        # 反面
+        content_html = f"""
+        <div class="flashcard-box">
+            <div style="font-size: 36px; font-weight: bold; color: #1b5e20;">{word_item['cn']}</div>
+            <div style="font-size: 20px; color: #4caf50; margin-top: 10px;">{word_item['pos']}</div>
+        </div>
+        """
+    st.markdown(content_html, unsafe_allow_html=True)
     
+    # 控制按钮
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("⬅️ 上一个"):
@@ -231,10 +253,12 @@ elif mode == "闪卡朗读模式":
             st.session_state.is_flipped = False
             st.rerun()
     with c2:
-        # 修复：无论正反面，点击此按钮都会重新触发朗读
-        if st.button("🔄 翻面 / 朗读 🔊"):
+        if st.button("🔄 翻面并朗读 🔊"):
+            # 先切换状态
             st.session_state.is_flipped = not st.session_state.is_flipped
-            speak_word(word_item['word']) # 始终朗读英文单词
+            # 触发朗读
+            speak_word(word_item['word'])
+            # 强制刷新页面以应用状态
             st.rerun()
     with c3:
         if st.button("下一个 ➡️"):
