@@ -28,22 +28,27 @@ if "matched_ids" not in st.session_state: st.session_state.matched_ids = set()
 if "selection" not in st.session_state: st.session_state.selection = []
 # TTS 朗读函数
 # 重新定义的朗读函数：使用更稳健的注入方式
-def speak_word_stable(word):
-    # 使用时间戳或随机数确保每次生成的 JS 都是唯一的
-    unique_id = int(time.time() * 1000)
-    js_code = f"""
-    <div id="tts_{unique_id}" style="display:none;">
-        <script>
-            // 确保之前的朗读全部停止，防止语音重叠
-            window.speechSynthesis.cancel();
-            var msg = new SpeechSynthesisUtterance("{word}");
-            msg.lang = 'en-US';
-            window.speechSynthesis.speak(msg);
-        </script>
-    </div>
-    """
-    # 必须放在 st.button 逻辑内部，且在 st.rerun() 之前执行
-    st.markdown(js_code, unsafe_allow_html=True)
+# --- 在 0️⃣ 路径与初始化 之后 ---
+
+# TTS 朗读函数 (统一名称并确保在顶层定义)
+def speak_word(word):
+    if word:
+        # 使用时间戳确保 JS 片段的唯一性，防止缓存
+        unique_id = int(time.time() * 1000)
+        js_code = f"""
+        <div id="tts_{unique_id}" style="display:none;">
+            <script>
+                (function() {{
+                    window.speechSynthesis.cancel();
+                    var msg = new SpeechSynthesisUtterance("{word}");
+                    msg.lang = 'en-US';
+                    msg.rate = 0.9;
+                    window.speechSynthesis.speak(msg);
+                }})();
+            </script>
+        </div>
+        """
+        st.markdown(js_code, unsafe_allow_html=True)
 # ---------------------------
 # 1️⃣ 强化版 CSS (动画、阴影、卡片样式)
 # ---------------------------
