@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import random
 import os
+import time
+import re
 
 # ---------------------------
 # 0️⃣ 路径与初始化
@@ -12,55 +14,33 @@ def get_path(file_name):
     p = os.path.join(base_path, file_name)
     return p if os.path.exists(p) else None
 
-# 页面配置：设置 wide 模式有利于适配平板和电脑
+# 页面配置
 st.set_page_config(page_title="探险家英语词汇工坊", page_icon="🎒", layout="wide")
 
-# 全局 CSS：优化移动端体验和卡片样式
+# 初始化积分和状态
+if "score" not in st.session_state: st.session_state.score = 0
+if "q_idx" not in st.session_state: st.session_state.q_idx = 0
+if "ex_idx" not in st.session_state: st.session_state.ex_idx = 0
+if "card_idx" not in st.session_state: st.session_state.card_idx = 0
+if "is_flipped" not in st.session_state: st.session_state.is_flipped = False
+
+# 全局 CSS
 st.markdown("""
 <style>
     .main { background-color: #f5f7f9; }
-    /* 响应式卡片容器 */
-    .flashcard-container {
-        perspective: 1000px;
-        margin: 20px auto;
-        max-width: 350px;
-        height: 220px;
-        cursor: pointer;
-    }
-    .flashcard {
-        background-color: white;
-        border: 2px solid #2e7d32;
-        border-radius: 15px;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: 20px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
+    .score-box { background: #2e7d32; color: white; padding: 12px; border-radius: 12px; text-align: center; font-size: 22px; margin-bottom: 20px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .flashcard-container { perspective: 1000px; margin: 20px auto; max-width: 350px; height: 220px; cursor: pointer; }
+    .flashcard { background-color: white; border: 2px solid #2e7d32; border-radius: 15px; height: 100%; display: flex; 
+                 flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; 
+                 box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
     .word-text { font-size: 32px; font-weight: bold; color: #2e7d32; }
-    .cn-text { font-size: 24px; color: #555; }
-    .stButton>button { width: 100%; border-radius: 20px; }
-    
-    /* 移动端适配：减小内边距 */
-    @media (max-width: 600px) {
-        .word-text { font-size: 26px; }
-        .cn-text { font-size: 20px; }
-    }
+    .stButton>button { width: 100%; border-radius: 20px; font-weight: bold; height: 3em; }
 </style>
 """, unsafe_allow_html=True)
 
-# TTS 朗读函数 (JavaScript 代码实现)
+# TTS 朗读函数
 def speak_word(word):
-    js_code = f"""
-    <script>
-    var msg = new SpeechSynthesisUtterance('{word}');
-    msg.lang = 'en-US';
-    window.speechSynthesis.speak(msg);
-    </script>
-    """
+    js_code = f"""<script>var msg = new SpeechSynthesisUtterance('{word}'); msg.lang = 'en-US'; window.speechSynthesis.speak(msg);</script>"""
     st.components.v1.html(js_code, height=0)
 
 # ---------------------------
@@ -115,34 +95,60 @@ DATA = [
     {"id": 46, "word": "picturesque", "pos": "形容词", "cn": "风景如画的", "example": "The village is really picturesque."},
     {"id": 47, "word": "magnificent", "pos": "形容词", "cn": "壮丽的", "example": "The palace is magnificent."}
 ]
-df = pd.DataFrame(DATA)
 
 # ---------------------------
-# 2️⃣ 导航
+# 2️⃣ 导航与分组
 # ---------------------------
+logo_path = get_path("logo.png")
+if logo_path: st.sidebar.image(logo_path)
+
 st.sidebar.title("📚 Nova English")
 mode = st.sidebar.radio("选择模式", [
-    "思维脑图学习",
-    "闪卡朗读模式", # 新增
-    "单词大闯关",
-    "卡片匹配游戏",
-    "完整词汇表"
+    "思维脑图学习", "闪卡朗读模式", "单词大闯关", "卡片匹配游戏", "例句挖空练习", "完整词汇表"
 ])
+
+group_options = {
+    "1-10": (0, 10), "11-20": (10, 20), "21-30": (20, 30), "31-40": (30, 40), "41-47": (40, 47)
+}
+group_key = st.sidebar.selectbox("选择词汇组", list(group_options.keys()))
+start, end = group_options[group_key]
+CURRENT_DATA = DATA[start:end]
+
+# 顶部积分
+st.markdown(f'<div class="score-box">⭐ 探险积分：{st.session_state.score}</div>', unsafe_allow_html=True)
 
 # ---------------------------
 # 3️⃣ 模式实现
 # ---------------------------
 
-# --- 闪卡朗读模式 (新增) ---
-if mode == "闪卡朗读模式":
+# --- A. 思维脑图 (包含 banner.jpg 和 mindmap.png) ---
+if mode == "思维脑图学习":
+    st.subheader("🌟 逻辑联想记忆")
+    
+    # 加载 Banner
+    banner_img = get_path("banner.jpg")
+    if banner_img:
+        st.image(banner_img, use_container_width=True)
+    
+    st.info("💡 记忆口诀：First (准备) -> Next (出发) -> Finally (享受)")
+    
+    # 加载思维脑图
+    mindmap_img = get_path("mindmap.png")
+    if mindmap_img:
+        st.image(mindmap_img, caption="核心词汇思维导图", use_container_width=True)
+    else:
+        # 如果没有图，显示文字版简易导图
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success("**第一步：准备** (Passport, Visa, Prepare...)")
+        with col2:
+            st.error("**第二步：目的地** (Destination, Museum, Scenic...)")
+
+# --- B. 闪卡朗读 ---
+elif mode == "闪卡朗读模式":
     st.subheader("🗂️ 点击卡片翻面 & 发音")
+    word_item = CURRENT_DATA[st.session_state.card_idx % len(CURRENT_DATA)]
     
-    if "card_idx" not in st.session_state: st.session_state.card_idx = 0
-    if "is_flipped" not in st.session_state: st.session_state.is_flipped = False
-    
-    word_item = DATA[st.session_state.card_idx]
-    
-    # 显示卡片
     st.markdown(f"""
     <div class="flashcard-container">
         <div class="flashcard">
@@ -152,11 +158,10 @@ if mode == "闪卡朗读模式":
     </div>
     """, unsafe_allow_html=True)
     
-    # 交互按钮
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("⬅️ 上一个"):
-            st.session_state.card_idx = (st.session_state.card_idx - 1) % len(DATA)
+            st.session_state.card_idx = (st.session_state.card_idx - 1) % len(CURRENT_DATA)
             st.session_state.is_flipped = False
             st.rerun()
     with col2:
@@ -166,66 +171,94 @@ if mode == "闪卡朗读模式":
             st.rerun()
     with col3:
         if st.button("下一个 ➡️"):
-            st.session_state.card_idx = (st.session_state.card_idx + 1) % len(DATA)
+            st.session_state.card_idx = (st.session_state.card_idx + 1) % len(CURRENT_DATA)
             st.session_state.is_flipped = False
             st.rerun()
 
-# --- 思维脑图学习 ---
-elif mode == "思维脑图学习":
-    st.subheader("🌟 逻辑联想记忆")
-    banner = get_path("banner.jpg")
-    if banner: st.image(banner, use_container_width=True)
-    
-    st.info("💡 记忆口诀：First (准备) -> Next (出发) -> Finally (享受)")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.success("**第一步：准备** (Passport, Visa, Prepare...)")
-        st.warning("**第二步：流程** (Check, Departure, Security...)")
-    with col2:
-        st.error("**第三步：目的地** (Destination, Museum, Scenic...)")
-
-# --- 单词大闯关 ---
+# --- C. 单词大闯关 ---
 elif mode == "单词大闯关":
     st.subheader("🎯 拼写挑战")
-    q_idx = st.session_state.get("q_idx", 0)
-    row = DATA[q_idx]
-    
-    st.write(f"第 {q_idx+1} / {len(DATA)} 题")
+    row = CURRENT_DATA[st.session_state.q_idx % len(CURRENT_DATA)]
     st.markdown(f"### 中文：{row['cn']}")
-    user_input = st.text_input("拼写英文单词：", key="spell_input")
+    user_input = st.text_input("拼写英文单词：", key="spell_input").strip().lower()
     
-    if st.button("提交答案"):
-        if user_input.lower().strip() == row['word'].lower():
+    if st.button("确定提交"):
+        if user_input == row['word'].lower():
             st.balloons()
-            st.success("✅ 太棒了！")
-            st.session_state.q_idx = (q_idx + 1) % len(DATA)
+            st.success("✅ 正确！+10 分")
+            st.session_state.score += 10
+            st.session_state.q_idx += 1
+            time.sleep(1)
+            st.rerun()
         else:
-            st.error(f"❌ 拼错了，再试一次！正确答案：{row['word']}")
+            st.error(f"❌ 拼错了。正确答案：{row['word']}")
 
-# --- 卡片匹配游戏 ---
+# --- D. 卡片匹配游戏 ---
 elif mode == "卡片匹配游戏":
     st.subheader("🃏 连连看挑战")
-    # 增加状态存储避免点击即刷新
-    group_idx = st.session_state.get("group_idx", 0)
-    current_group = DATA[group_idx*10 : (group_idx+1)*10]
-    
-    cards = []
-    for item in current_group:
-        cards.append({"val": item['word'], "id": item['id']})
-        cards.append({"val": item['cn'], "id": item['id']})
-    
-    random.seed(group_idx) # 保证单组内位置固定
-    random.shuffle(cards)
-    
-    cols = st.columns(4)
-    for i, card in enumerate(cards):
-        with cols[i % 4]:
-            st.button(card['val'], key=f"btn_{card['val']}_{i}")
+    if "game_cards" not in st.session_state or st.session_state.get("last_group_match") != group_key:
+        pool = []
+        for d in CURRENT_DATA:
+            pool.append({"id": d['id'], "val": d['word']})
+            pool.append({"id": d['id'], "val": d['cn']})
+        random.shuffle(pool)
+        st.session_state.game_cards = pool
+        st.session_state.matched_ids = set()
+        st.session_state.selection = []
+        st.session_state.last_group_match = group_key
 
-# --- 完整词汇表 ---
+    if len(st.session_state.selection) == 2:
+        i1, i2 = st.session_state.selection
+        if st.session_state.game_cards[i1]['id'] == st.session_state.game_cards[i2]['id']:
+            st.session_state.matched_ids.add(st.session_state.game_cards[i1]['id'])
+            st.session_state.score += 20
+            st.toast("✅ 匹配成功！+20分")
+        else:
+            time.sleep(0.8)
+        st.session_state.selection = []
+        st.rerun()
+
+    back_img = get_path("card.png")
+    cols = st.columns(4)
+    for i, card in enumerate(st.session_state.game_cards):
+        with cols[i % 4]:
+            if card['id'] in st.session_state.matched_ids:
+                st.write("") # 消除
+            else:
+                is_sel = i in st.session_state.selection
+                if not is_sel:
+                    if back_img: 
+                        st.image(back_img, use_container_width=True)
+                    if st.button("翻开", key=f"match_{i}"):
+                        st.session_state.selection.append(i)
+                        st.rerun()
+                else:
+                    st.button(card['val'], key=f"open_{i}", disabled=True)
+
+# --- E. 例句挖空练习 ---
+elif mode == "例句挖空练习":
+    st.subheader("📝 语境大考验")
+    row = CURRENT_DATA[st.session_state.ex_idx % len(CURRENT_DATA)]
+    display_sent = re.sub(row['word'], "________", row['example'], flags=re.IGNORECASE)
+    
+    st.markdown(f"#### 根据语境填空：\n`{display_sent}`")
+    st.caption(f"提示：{row['cn']}")
+    ans = st.text_input("填入单词：", key="ex_input").strip().lower()
+    
+    if st.button("确定答案"):
+        if ans == row['word'].lower():
+            st.success("✅ 语境理解正确！+15 分")
+            st.session_state.score += 15
+            st.session_state.ex_idx += 1
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ 再试一次？正确单词首字母：{row['word'][0]}")
+
+# --- F. 完整词汇表 ---
 elif mode == "完整词汇表":
     st.subheader("📖 全量词汇手册")
-    st.dataframe(df[["word","pos","cn","example"]], use_container_width=True)
+    st.dataframe(pd.DataFrame(DATA)[["word","pos","cn","example"]], use_container_width=True)
 
 # ---------------------------
 # 4️⃣ 页脚
