@@ -4,7 +4,7 @@ import random
 import os
 import time
 import re
-
+import base64
 # ---------------------------
 # 0️⃣ 路径与初始化
 # ---------------------------
@@ -247,66 +247,83 @@ elif mode == "单词大闯关":
             st.error("❌ 顺序不对哦，再试一次！")
 
 # --- D. 卡片匹配游戏 (3D 动画 + 匹配逻辑 + card.png) ---
+
+
+# --- C. 卡片匹配游戏 (核心逻辑：全图渲染 + 自动翻回) ---
 elif mode == "卡片匹配游戏":
-    st.subheader("🃏 3D 翻转连连看 (当前分组)")
-    
-    # 游戏初始化：单词与中文混合并打乱
-    if "game_cards" not in st.session_state or st.session_state.get("last_g") != group_key:
+    st.subheader("🃏 3D 翻转连连看")
+
+    # 1. 辅助函数：将本地图片转为 Base64 供 CSS 使用
+    def get_base64_img(path):
+        if path and os.path.exists(path):
+            with open(path, "rb") as f:
+                data = f.read()
+            return base64.b64encode(data).decode()
+        return None
+
+    card_bg_base64 = get_base64_img(get_path("card.png"))
+    # 设置卡背样式：有图用图，没图用深绿背景
+    bg_style = f"background-image: url('data:image/png;base64,{card_bg_base64}'); background-size: cover;" if card_bg_base64 else "background-color: #2e7d32;"
+
+    # 2. 游戏池初始化 (First: 提取数据 -> Next: 乱序 -> Finally: 存储)
+    if "game_cards" not in st.session_state or st.session_state.get("current_g_key") != group_key:
         pool = []
         for d in CURRENT_DATA:
             pool.append({"id": d['id'], "val": d['word']})
             pool.append({"id": d['id'], "val": d['cn']})
-        st.session_state.game_cards = random.sample(pool, len(pool)) # 全随机乱序
+        # 彻底打乱拼写和单词的配对位置
+        st.session_state.game_cards = random.sample(pool, len(pool))
         st.session_state.matched_ids = set()
         st.session_state.selection = []
-        st.session_state.last_g = group_key
+        st.session_state.current_g_key = group_key
 
-    # 匹配判断：翻开两张后
-    if len(st.session_state.selection) == 2:
-        idx1, idx2 = st.session_state.selection
-        if st.session_state.game_cards[idx1]['id'] == st.session_state.game_cards[idx2]['id']:
-            st.session_state.matched_ids.add(st.session_state.game_cards[idx1]['id'])
-            st.session_state.score += 20
-            st.toast("🔥 匹配成功！+20分")
-            st.session_state.selection = []
-            st.rerun()
-        else:
-            time.sleep(1.2) # 留出时间记忆
-            st.session_state.selection = []
-            st.rerun()
-
-    # 获取卡背图片
-    card_back_img = get_path("card.png")
-    
-    # 渲染卡片网格
+    # 3. 渲染卡片网格
+    # 注意：我们将判定逻辑放在渲染之后，或通过 time.sleep 触发，
+    # 这样用户能先看到第二张牌翻开的样子
     cols = st.columns(4)
     for i, card in enumerate(st.session_state.game_cards):
         with cols[i % 4]:
             is_matched = card['id'] in st.session_state.matched_ids
-            is_flipped = i in st.session_state.selection
+            # 只要在选中列表里，就添加翻转类
+            is_flipped = i in st.session_state.selection 
             
-            flip_style = "is-flipped" if is_flipped else ""
-            match_style = "is-matched" if is_matched else ""
+            flip_class = "is-flipped" if is_flipped else ""
+            match_class = "is-matched" if is_matched else ""
             
-            # HTML 结构：卡背与卡面
-            card_back_content = f'<img src="data:image/png;base64,{st.image_to_base64(card_back_img)}" class="card-img">' if False else "?" 
-            # 注意：Streamlit 中显示本地图需特殊处理，这里采用 CSS 背景或简单的文字提示
-            # 简化逻辑：如果有 card.png 则显示背景，这里为了代码稳定性使用 Emoji 或文字作为卡背
-            
+            # 渲染 HTML
             st.markdown(f"""
-            <div class="game-container {match_style}">
-                <div class="game-inner {flip_style}">
-                    <div class="game-back">?</div>
+            <div class="game-container {match_class}">
+                <div class="game-inner {flip_class}">
+                    <div class="game-back" style="{bg_style}"></div>
                     <div class="game-front">{card['val']}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
-            # 按钮交互
+            # 点击逻辑：点击后立即翻转并记录索引
             if not is_matched and not is_flipped and len(st.session_state.selection) < 2:
-                if st.button("翻转", key=f"match_{i}"):
+                if st.button("翻转", key=f"match_btn_{i}"):
                     st.session_state.selection.append(i)
                     st.rerun()
+
+    # 4. 【核心判定逻辑】当选满两张时
+    if len(st.session_state.selection) == 2:
+        idx1, idx2 = st.session_state.selection
+        if st.session_state.game_cards[idx1]['id'] == st.session_state.game_cards[idx2]['id']:
+            # 匹配成功
+            st.session_state.matched_ids.add(st.session_state.game_cards[idx1]['id'])
+            st.session_state.score += 20
+            st.toast("🔥 Bingo! 匹配成功！")
+            time.sleep(0.5) # 稍微停顿让用户看清
+            st.session_state.selection = []
+            if len(st.session_state.matched_ids) == len(CURRENT_DATA):
+                st.balloons()
+            st.rerun()
+        else:
+            # 匹配失败：等待 1.2 秒让用户记忆，然后清空列表触发 CSS 翻回动画
+            time.sleep(1.2)
+            st.session_state.selection = []
+            st.rerun()
 
 # --- E. 例句练习 ---
 elif mode == "例句挖空练习":
