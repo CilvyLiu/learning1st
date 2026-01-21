@@ -78,26 +78,22 @@ st.markdown("""
 
 # TTS 朗读函数
 # 重新定义的朗读函数：使用更稳健的注入方式
-def speak_word(word):
-    if word:
-        # 生成一个带随机数的 key 避免缓存
-        rid = random.randint(0, 99999)
-        js_code = f"""
-        <div style="display:none;" id="tts_{rid}">
-            <script>
-                (function() {{
-                    window.speechSynthesis.cancel();
-                    var msg = new SpeechSynthesisUtterance('{word}');
-                    msg.lang = 'en-US';
-                    msg.rate = 0.9;
-                    window.speechSynthesis.speak(msg);
-                    document.getElementById('tts_{rid}').remove();
-                }})();
-            </script>
-        </div>
-        """
-        # 使用 st.markdown 配合 unsafe_allow_html 避开组件错误
-        st.markdown(js_code, unsafe_allow_html=True)
+def speak_word_stable(word):
+    # 使用时间戳或随机数确保每次生成的 JS 都是唯一的
+    unique_id = int(time.time() * 1000)
+    js_code = f"""
+    <div id="tts_{unique_id}" style="display:none;">
+        <script>
+            // 确保之前的朗读全部停止，防止语音重叠
+            window.speechSynthesis.cancel();
+            var msg = new SpeechSynthesisUtterance("{word}");
+            msg.lang = 'en-US';
+            window.speechSynthesis.speak(msg);
+        </script>
+    </div>
+    """
+    # 必须放在 st.button 逻辑内部，且在 st.rerun() 之前执行
+    st.markdown(js_code, unsafe_allow_html=True)
 
 # ---------------------------
 # 2️⃣ 完整词库 (47个单词)
